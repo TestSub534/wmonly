@@ -3,7 +3,13 @@ import uuid
 import subprocess
 import asyncio
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, ContextTypes, filters
+from telegram.ext import (
+    ApplicationBuilder,
+    MessageHandler,
+    CommandHandler,
+    ContextTypes,
+    filters
+)
 from aiohttp import web
 
 # Store video paths per user
@@ -109,26 +115,11 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_videos[user_id] = []
     await update.message.reply_text("Your video list has been cleared.")
 
+# Aiohttp healthcheck
 async def healthcheck(request):
     return web.Response(text="ok", status=200)
 
-async def run_polling_bot():
-    TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-    if not TOKEN:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN environment variable not set!")
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("merge", merge_videos))
-    app.add_handler(CommandHandler("reset", reset))
-    app.add_handler(MessageHandler(filters.VIDEO, handle_video))
-    await app.initialize()
-    await app.start()
-    print("Bot started...")
-    await app.updater.start_polling()
-    await app.updater.idle()
-
-async def start_servers():
-    # Start both the polling bot and the aiohttp server
+async def start_healthcheck_server():
     port = int(os.environ.get("PORT", 8080))
     app = web.Application()
     app.router.add_get("/", healthcheck)
@@ -138,8 +129,25 @@ async def start_servers():
     print(f"Healthcheck server running on port {port}")
     await site.start()
 
-    # Run the polling bot forever (this will block)
-    await run_polling_bot()
+async def run_polling_bot():
+    TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not TOKEN:
+        raise RuntimeError("TELEGRAM_BOT_TOKEN environment variable not set!")
+
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("merge", merge_videos))
+    app.add_handler(CommandHandler("reset", reset))
+    app.add_handler(MessageHandler(filters.VIDEO, handle_video))
+
+    print("Bot started...")
+    await app.run_polling()
+
+async def main():
+    await asyncio.gather(
+        start_healthcheck_server(),
+        run_polling_bot()
+    )
 
 if __name__ == "__main__":
-    asyncio.run(start_servers())
+    asyncio.run(main())
